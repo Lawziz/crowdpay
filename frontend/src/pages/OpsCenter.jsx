@@ -310,6 +310,7 @@ export default function OpsCenter() {
     <div style={styles.pageContainer}>
       {/* Header */}
       <div style={styles.headerRow}>
+        
         <div>
           <div style={styles.tagline}>OPERATIONAL TELEMETRY & INCIDENT RESPONSE</div>
           <h1 style={styles.pageTitle}>System Health & Operations Centre</h1>
@@ -399,6 +400,7 @@ export default function OpsCenter() {
               {healthData?.sse_streams?.active_connections ?? 0} ACTIVE
             </span>
           </div>
+          
           <div style={styles.metricVal}>
             {healthData?.sse_streams?.dropped_count === 0
               ? '0'
@@ -1298,6 +1300,7 @@ const styles = {
     color: '#94a3b8',
     fontFamily: 'monospace',
   },
+  
   manualActionBox: {
     backgroundColor: '#78350f33',
     border: '1px solid #f59e0b',
@@ -1306,6 +1309,7 @@ const styles = {
     fontSize: '0.85rem',
     color: '#fef3c7',
   },
+  
   spinner: {
     width: '24px',
     height: '24px',
