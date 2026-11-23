@@ -262,6 +262,7 @@ function PlatformHealthPanel() {
                   {d.last_error && (
                     <div style={{ color: 'var(--color-danger)' }}>{d.last_error}</div>
                   )}
+                  
                 </div>
                 <button
                   type="button"
@@ -383,6 +384,7 @@ function WithdrawalQueue() {
               </tr>
             </thead>
             <tbody>
+              
               {rows.map((row) => (
                 <tr key={row.id} style={{ borderBottom: '1px solid var(--color-border-light)' }}>
                   <td style={{ padding: '0.5rem' }}>{row.campaign_title}</td>
@@ -484,6 +486,7 @@ function WithdrawalQueue() {
                 <ol style={{ margin: '0.25rem 0', paddingLeft: '1.1rem' }}>
                   {events.map((ev) => (
                     <li key={ev.id}>
+                    
                       <strong>{ev.action}</strong>
                       {ev.note ? ` — ${ev.note}` : ''} (<RelativeTime date={ev.created_at} />)
                     </li>
