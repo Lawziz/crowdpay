@@ -1,20 +1,23 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import styles from '../components/ops/opsStyles';
-
-const OpsAuthPanel = lazy(() => import('../components/ops/OpsAuthPanel'));
-const OpsOverviewPanel = lazy(() => import('../components/ops/OpsOverviewPanel'));
-const OpsIncidentPanel = lazy(() => import('../components/ops/OpsIncidentPanel'));
-const OpsWalletAuditPanel = lazy(() => import('../components/ops/OpsWalletAuditPanel'));
-const OpsRunbookModal = lazy(() => import('../components/ops/OpsRunbookModal'));
-const OpsMetricHistoryModal = lazy(() => import('../components/ops/OpsMetricHistoryModal'));
-
-const panelFallback = <p style={{ color: '#94a3b8' }}>Loading operations panel…</p>;
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+} from 'recharts';
+import { safeLocalStorage, safeSessionStorage } from '../lib/safeStorage';
 
 export default function OpsCenter() {
   const { t } = useTranslation();
   const [apiKey, setApiKey] = useState(
-    () => sessionStorage.getItem('cp_ops_api_key') || localStorage.getItem('cp_ops_api_key') || ''
+    () =>
+      safeSessionStorage.getItem('cp_ops_api_key') ||
+      safeLocalStorage.getItem('cp_ops_api_key') ||
+      ''
   );
   const [tempKey, setTempKey] = useState('');
   const [rememberKey, setRememberKey] = useState(false);
@@ -63,8 +66,8 @@ export default function OpsCenter() {
       }
       const res = await fetch(url, { ...options, headers });
       if (res.status === 401 || res.status === 403) {
-        localStorage.removeItem('cp_ops_api_key');
-        sessionStorage.removeItem('cp_ops_api_key');
+        safeLocalStorage.removeItem('cp_ops_api_key');
+        safeSessionStorage.removeItem('cp_ops_api_key');
         throw new Error(res.status === 403 ? 'FORBIDDEN_OPS' : 'UNAUTHORIZED_OPS');
       }
       return res;
@@ -115,8 +118,8 @@ export default function OpsCenter() {
               : 'Authentication failed: Invalid OPS_API_KEY.'
           );
           setApiKey('');
-          localStorage.removeItem('cp_ops_api_key');
-          sessionStorage.removeItem('cp_ops_api_key');
+          safeLocalStorage.removeItem('cp_ops_api_key');
+          safeSessionStorage.removeItem('cp_ops_api_key');
         } else {
           setErrorMsg(err.message || 'Failed to fetch operations data.');
         }
@@ -142,19 +145,19 @@ export default function OpsCenter() {
     if (!tempKey.trim()) return;
     const clean = tempKey.trim();
     if (rememberKey) {
-      localStorage.setItem('cp_ops_api_key', clean);
-      sessionStorage.removeItem('cp_ops_api_key');
+      safeLocalStorage.setItem('cp_ops_api_key', clean);
+      safeSessionStorage.removeItem('cp_ops_api_key');
     } else {
-      sessionStorage.setItem('cp_ops_api_key', clean);
-      localStorage.removeItem('cp_ops_api_key');
+      safeSessionStorage.setItem('cp_ops_api_key', clean);
+      safeLocalStorage.removeItem('cp_ops_api_key');
     }
     setAuthError('');
     setApiKey(clean);
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('cp_ops_api_key');
-    sessionStorage.removeItem('cp_ops_api_key');
+    safeLocalStorage.removeItem('cp_ops_api_key');
+    safeSessionStorage.removeItem('cp_ops_api_key');
     setApiKey('');
     setHealthData(null);
   };
@@ -269,13 +272,14 @@ export default function OpsCenter() {
 
         <div style={styles.headerActions}>
           <button
+            type="button"
             onClick={() => loadDashboardData(true)}
             disabled={refreshing}
             style={styles.refreshBtn}
           >
             {refreshing ? 'Refreshing...' : '↻ Refresh Telemetry'}
           </button>
-          <button onClick={handleLogout} style={styles.secondaryBtn}>
+          <button type="button" onClick={handleLogout} style={styles.secondaryBtn}>
             Lock / Change Key
           </button>
         </div>
@@ -283,47 +287,469 @@ export default function OpsCenter() {
 
       {errorMsg && <div style={styles.errorAlert}>{errorMsg}</div>}
 
-      <Suspense fallback={panelFallback}>
-        <OpsOverviewPanel healthData={healthData} handleOpenHistory={handleOpenHistory} />
-      </Suspense>
-      <Suspense fallback={panelFallback}>
-        <OpsIncidentPanel
-          incidentTab={incidentTab}
-          setIncidentTab={setIncidentTab}
-          incidents={incidents}
-          resolvedIncidents={resolvedIncidents}
-          handleAcknowledge={handleAcknowledge}
-          handleOpenRunbook={handleOpenRunbook}
-        />
-      </Suspense>
-      <Suspense fallback={panelFallback}>
-        <OpsWalletAuditPanel
-          walletAudit={walletAudit}
-          handleApproveWalletFunding={handleApproveWalletFunding}
-        />
-      </Suspense>
+      {/* Main Health Score Gauge & Top Stats */}
+      <div style={styles.overviewGrid}>
+        <div style={styles.scoreCard}>
+          <div style={styles.scoreGaugeContainer}>
+            <div style={{ ...styles.scoreGauge, borderColor: scoreColor }}>
+              <span style={{ ...styles.scoreValue, color: scoreColor }}>{score}</span>
+              <span style={styles.scoreLabel}>/ 100</span>
+            </div>
+          </div>
+          <div style={styles.scoreMeta}>
+            <div
+              style={{
+                ...styles.statusPill,
+                backgroundColor: `${scoreColor}22`,
+                color: scoreColor,
+              }}
+            >
+              {score >= 85
+                ? 'SYSTEM OPERATIONAL'
+                : score >= 60
+                  ? 'DEGRADED PERFORMANCE'
+                  : 'CRITICAL INCIDENTS'}
+            </div>
+            <div style={styles.lastCollected}>
+              Last collection:{' '}
+              {healthData?.collected_at
+                ? new Date(healthData.collected_at).toLocaleTimeString()
+                : 'Just now'}
+            </div>
+          </div>
+        </div>
+
+        {/* Subsystem Telemetry Cards */}
+        <div
+          style={styles.telemetryCard}
+          onClick={() => handleOpenHistory('horizon_testnet_latency_ms')}
+          title="Click to view latency history"
+        >
+          <div style={styles.cardHeader}>
+            <span style={styles.cardTitle}>Horizon Node Health</span>
+            <span
+              style={{
+                ...styles.badge,
+                backgroundColor: healthData?.horizon?.testnet?.ok ? '#10b98122' : '#ef444422',
+                color: healthData?.horizon?.testnet?.ok ? '#10b981' : '#ef4444',
+              }}
+            >
+              {healthData?.horizon?.testnet?.ok ? 'ONLINE' : 'DOWN'}
+            </span>
+          </div>
+          <div style={styles.metricVal}>
+            {healthData?.horizon?.testnet?.latency_ms ?? 0}{' '}
+            <span style={styles.metricUnit}>ms</span>
+          </div>
+          <div style={styles.cardDetail}>
+            Ledger staleness:{' '}
+            <strong>{healthData?.horizon?.ledger?.staleness_seconds ?? 0}s</strong>
+          </div>
+          <div style={styles.sparkHint}>📈 Click to view 24h latency chart</div>
+        </div>
+
+        <div style={styles.telemetryCard}>
+          <div style={styles.cardHeader}>
+            <span style={styles.cardTitle}>SSE Payment Streams</span>
+            <span style={styles.badgeNeutral}>
+              {healthData?.sse_streams?.active_connections ?? 0} ACTIVE
+            </span>
+          </div>
+          <div style={styles.metricVal}>
+            {healthData?.sse_streams?.dropped_count === 0
+              ? '0'
+              : healthData?.sse_streams?.dropped_count}
+            <span style={styles.metricUnit}> dropped</span>
+          </div>
+          <div style={styles.cardDetail}>
+            Monitored campaigns: <strong>{healthData?.sse_streams?.total_monitored ?? 0}</strong>
+          </div>
+        </div>
+
+        <div style={styles.telemetryCard}>
+          <div style={styles.cardHeader}>
+            <span style={styles.cardTitle}>Platform Co-Signer</span>
+            <span
+              style={{
+                ...styles.badge,
+                backgroundColor:
+                  (healthData?.platform_wallet?.balance_xlm ?? 0) >= 10 ? '#10b98122' : '#ef444422',
+                color:
+                  (healthData?.platform_wallet?.balance_xlm ?? 0) >= 10 ? '#10b981' : '#ef4444',
+              }}
+            >
+              {(healthData?.platform_wallet?.balance_xlm ?? 0) >= 10 ? 'HEALTHY' : 'LOW BALANCE'}
+            </span>
+          </div>
+          <div style={styles.metricVal}>
+            {healthData?.platform_wallet?.balance_xlm?.toFixed(2) ?? '0.00'}{' '}
+            <span style={styles.metricUnit}>XLM</span>
+          </div>
+          <div style={styles.cardDetail}>
+            Pending txs:{' '}
+            <strong>{healthData?.platform_wallet?.pending_transactions_count ?? 0}</strong> (Est.
+            needed: {healthData?.platform_wallet?.estimated_xlm_needed ?? 0} XLM)
+          </div>
+        </div>
+      </div>
+
+      {/* Incidents & Remediation Section */}
+      <div style={styles.sectionHeader}>
+        <h2 style={styles.sectionTitle}>Incident Management & Runbooks</h2>
+        <div style={styles.tabSwitch}>
+          <button
+            type="button"
+            onClick={() => setIncidentTab('open')}
+            style={incidentTab === 'open' ? styles.tabActive : styles.tabInactive}
+          >
+            Active Incidents ({incidents.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setIncidentTab('resolved')}
+            style={incidentTab === 'resolved' ? styles.tabActive : styles.tabInactive}
+          >
+            Resolved (Last 24h: {resolvedIncidents.length})
+          </button>
+        </div>
+      </div>
+
+      {incidentTab === 'open' ? (
+        incidents.length === 0 ? (
+          <div style={styles.emptyState}>
+            <div style={{ fontSize: '2rem', marginBottom: '8px' }}>✨</div>
+            <div style={{ fontWeight: '600', color: '#10b981' }}>All Systems Nominal</div>
+            <p style={{ color: '#94a3b8', fontSize: '0.85rem' }}>
+              No open incidents or threshold violations detected.
+            </p>
+          </div>
+        ) : (
+          <div style={styles.incidentList}>
+            {incidents.map((inc) => (
+              <div key={inc.id} style={styles.incidentCard}>
+                <div style={styles.incidentHeader}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span
+                      style={{
+                        ...styles.severityTag,
+                        backgroundColor: inc.severity === 'critical' ? '#ef4444' : '#f59e0b',
+                      }}
+                    >
+                      {inc.severity.toUpperCase()}
+                    </span>
+                    <span style={styles.incidentType}>{inc.incident_type}</span>
+                  </div>
+                  <span style={styles.incidentTime}>
+                    Detected: {new Date(inc.triggered_at).toLocaleTimeString()}
+                  </span>
+                </div>
+
+                <div style={styles.incidentBody}>
+                  <p style={styles.incidentMsg}>
+                    {inc.details?.message || JSON.stringify(inc.triggering_metric_values)}
+                  </p>
+                </div>
+
+                <div style={styles.incidentActions}>
+                  {inc.status === 'open' && (
+                    <button
+                      type="button"
+                      onClick={() => handleAcknowledge(inc.id)}
+                      style={styles.ackBtn}
+                    >
+                      ✓ Acknowledge
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => handleOpenRunbook(inc)}
+                    style={styles.runbookBtn}
+                  >
+                    ⚡ Execute Runbook
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )
+      ) : (
+        <div style={styles.resolvedList}>
+          {resolvedIncidents.length === 0 ? (
+            <div style={styles.emptyState}>No resolved incidents in the past 24 hours.</div>
+          ) : (
+            resolvedIncidents.map((res) => (
+              <div key={res.id} style={styles.resolvedRow}>
+                <div>
+                  <span style={{ fontWeight: '600', color: '#94a3b8' }}>{res.incident_type}</span>
+                  <span style={{ marginLeft: '10px', fontSize: '0.8rem', color: '#64748b' }}>
+                    Resolved at {new Date(res.resolved_at).toLocaleTimeString()}
+                  </span>
+                </div>
+                <div style={{ fontSize: '0.85rem', color: '#10b981' }}>
+                  Duration: {res.duration_seconds ? `${res.duration_seconds}s` : '< 1m'}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {/* Campaign Wallet Reserve Audit Table */}
+      <div style={styles.sectionHeader}>
+        <div>
+          <h2 style={styles.sectionTitle}>Campaign Wallet Reserve Audit</h2>
+          <p style={styles.sectionDesc}>
+            Enforces Stellar base reserve formula:{' '}
+            <code>2 * base_reserve + trustlines * 0.5 XLM</code>
+          </p>
+        </div>
+      </div>
+
+      <div style={styles.tableCard}>
+        <table style={styles.table}>
+          <thead>
+            <tr>
+              <th style={styles.th}>Campaign</th>
+              <th style={styles.th}>Wallet Public Key</th>
+              <th style={styles.th}>Status</th>
+              <th style={styles.th}>Current Balance</th>
+              <th style={styles.th}>Min. Required</th>
+              <th style={styles.th}>Deficit</th>
+              <th style={styles.th}>Health</th>
+              <th style={styles.th}>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {walletAudit.length === 0 ? (
+              <tr>
+                <td colSpan="8" style={{ ...styles.td, textAlign: 'center', color: '#94a3b8' }}>
+                  No active campaign wallets currently found.
+                </td>
+              </tr>
+            ) : (
+              walletAudit.map((w) => (
+                <tr key={w.campaign_id} style={w.deficit_xlm > 0 ? styles.tableRowWarning : {}}>
+                  <td style={styles.td}>
+                    <strong>{w.campaign_title || 'Untitled Campaign'}</strong>
+                  </td>
+                  <td style={styles.td}>
+                    <code style={styles.code}>{w.wallet_public_key?.slice(0, 10)}...</code>
+                  </td>
+                  <td style={styles.td}>{w.campaign_status}</td>
+                  <td style={styles.td}>{w.balance_xlm.toFixed(4)} XLM</td>
+                  <td style={styles.td}>{w.min_required_xlm.toFixed(4)} XLM</td>
+                  <td
+                    style={{
+                      ...styles.td,
+                      color: w.deficit_xlm > 0 ? '#ef4444' : '#10b981',
+                      fontWeight: 'bold',
+                    }}
+                  >
+                    {w.deficit_xlm > 0 ? `-${w.deficit_xlm.toFixed(7)} XLM` : '0.0000000'}
+                  </td>
+                  <td style={styles.td}>
+                    <span
+                      style={{
+                        ...styles.statusBadge,
+                        backgroundColor: w.health === 'ok' ? '#10b98122' : '#ef444422',
+                        color: w.health === 'ok' ? '#10b981' : '#ef4444',
+                      }}
+                    >
+                      {w.health.toUpperCase()}
+                    </span>
+                  </td>
+                  <td style={styles.td}>
+                    {w.deficit_xlm > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => handleApproveWalletFunding(w.campaign_id)}
+                        style={styles.fundingBtn}
+                      >
+                        Approve Funding
+                      </button>
+                    ) : (
+                      <span style={{ color: '#64748b', fontSize: '0.85rem' }}>Compliant</span>
+                    )}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Runbook Modal */}
       {activeRunbookModal && (
-        <Suspense fallback={panelFallback}>
-          <OpsRunbookModal
-            activeRunbookModal={activeRunbookModal}
-            selectedIncident={selectedIncident}
-            setActiveRunbookModal={setActiveRunbookModal}
-            executionResult={executionResult}
-            runbookExecuting={runbookExecuting}
-            handleExecuteRunbook={handleExecuteRunbook}
-          />
-        </Suspense>
+        <div style={styles.modalOverlay}>
+          <div style={styles.modalCard}>
+            <div style={styles.modalHeader}>
+              <div>
+                <h3 style={styles.modalTitle}>Automated Runbook Remediation</h3>
+                <p style={styles.modalSubtitle}>Incident: {selectedIncident?.incident_type}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveRunbookModal(false)}
+                style={styles.closeBtn}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={styles.modalContent}>
+              {!executionResult && !runbookExecuting && (
+                <div>
+                  <p style={{ color: '#cbd5e1', marginBottom: '16px' }}>
+                    Triggering this runbook will execute automated diagnostics, safe operational
+                    locks, and state recovery.
+                  </p>
+                  <button type="button" onClick={handleExecuteRunbook} style={styles.primaryBtn}>
+                    Start Runbook Execution
+                  </button>
+                </div>
+              )}
+
+              {runbookExecuting && (
+                <div style={{ textAlign: 'center', padding: '24px 0' }}>
+                  <div style={{ color: '#38bdf8', marginBottom: '10px' }}>
+                    ⚡ Executing runbook steps in real-time...
+                  </div>
+                  <div style={styles.spinner} />
+                </div>
+              )}
+
+              {executionResult && (
+                <div>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      marginBottom: '12px',
+                    }}
+                  >
+                    <span style={{ fontWeight: '600', color: '#f8fafc' }}>
+                      Execution Status:{' '}
+                      <span
+                        style={{
+                          color: executionResult.status === 'completed' ? '#10b981' : '#f59e0b',
+                        }}
+                      >
+                        {executionResult.status.toUpperCase()}
+                      </span>
+                    </span>
+                    <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>
+                      Finished at {new Date(executionResult.completed_at).toLocaleTimeString()}
+                    </span>
+                  </div>
+
+                  <div style={styles.stepTimeline}>
+                    {executionResult.steps?.map((step, idx) => (
+                      <div key={idx} style={styles.stepItem}>
+                        <div style={styles.stepHeader}>
+                          <span style={styles.stepName}>{step.name}</span>
+                          <span
+                            style={{
+                              ...styles.stepStatusBadge,
+                              backgroundColor:
+                                step.status === 'completed' ? '#10b98122' : '#f59e0b22',
+                              color: step.status === 'completed' ? '#10b981' : '#f59e0b',
+                            }}
+                          >
+                            {step.status}
+                          </span>
+                        </div>
+                        <div style={styles.stepLog}>{step.log}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {executionResult.status === 'requires_manual_action' && (
+                    <div style={styles.manualActionBox}>
+                      <strong>Action Required:</strong>
+                      <p style={{ margin: '6px 0 0 0' }}>
+                        {executionResult.result?.action_required ||
+                          'Manual operator confirmation required.'}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div style={styles.modalFooter}>
+              <button
+                type="button"
+                onClick={() => setActiveRunbookModal(false)}
+                style={styles.secondaryBtn}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       {historyModalOpen && (
-        <Suspense fallback={panelFallback}>
-          <OpsMetricHistoryModal
-            historyModalOpen={historyModalOpen}
-            setHistoryModalOpen={setHistoryModalOpen}
-            historyMetric={historyMetric}
-            historyLoading={historyLoading}
-            historyData={historyData}
-          />
-        </Suspense>
+        <div style={styles.modalOverlay}>
+          <div style={styles.modalCard}>
+            <div style={styles.modalHeader}>
+              <div>
+                <h3 style={styles.modalTitle}>Metric Telemetry History</h3>
+                <p style={styles.modalSubtitle}>{historyMetric}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setHistoryModalOpen(false)}
+                style={styles.closeBtn}
+              >
+                ✕
+              </button>
+            </div>
+
+            <div style={{ padding: '16px', height: '300px' }}>
+              {historyLoading ? (
+                <div style={{ textAlign: 'center', paddingTop: '100px', color: '#94a3b8' }}>
+                  Loading time-series...
+                </div>
+              ) : historyData.length === 0 ? (
+                <div style={{ textAlign: 'center', paddingTop: '100px', color: '#94a3b8' }}>
+                  No historical data recorded yet for this metric.
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={historyData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                    <XAxis dataKey="time" stroke="#94a3b8" />
+                    <YAxis stroke="#94a3b8" />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: '#1e293b',
+                        borderColor: '#475569',
+                        color: '#f8fafc',
+                      }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="value"
+                      stroke="#38bdf8"
+                      strokeWidth={2}
+                      dot={false}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+
+            <div style={styles.modalFooter}>
+              <button
+                type="button"
+                onClick={() => setHistoryModalOpen(false)}
+                style={styles.secondaryBtn}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
